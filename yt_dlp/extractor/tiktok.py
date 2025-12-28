@@ -1037,7 +1037,10 @@ class TikTokUserIE(TikTokBaseIE):
 
                 if not response.get('HasMoreAfter'):
                     break
-                cursor = int(response.get('MaxCursor', cursor))
+                max_cursor = response.get('MaxCursor')
+                if max_cursor is None:
+                    break
+                cursor = int(max_cursor)
                 if cursor == 0:
                     break
 
