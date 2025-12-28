@@ -1006,11 +1006,9 @@ class TikTokUserIE(TikTokBaseIE):
                 if not response or response.get('statusCode') != 0:
                     break
 
+                total_count = int_or_none(response.get('TotalCount'))
                 story_items = response.get('itemList', [])
                 if not story_items:
-                    break
-
-                if cursor == 0 and int(response.get('TotalCount', 0)) == 0:
                     break
 
                 for item in story_items:
@@ -1034,6 +1032,10 @@ class TikTokUserIE(TikTokBaseIE):
                             'title': title_str,
                             'uploader': user_name,
                         }
+
+                # Some responses omit TotalCount; don't discard valid items in that case
+                if cursor == 0 and total_count == 0:
+                    break
 
                 if not response.get('HasMoreAfter'):
                     break
