@@ -987,9 +987,80 @@ class TikTokUserIE(TikTokBaseIE):
             'webcast_language': 'en',
         }
 
-    def _entries(self, sec_uid, user_name, fail_early=False):
+    def _fetch_stories(self, user_id, user_name):
+        try:
+            cursor = 0
+
+            while True:
+                response = self._download_json(
+                    'https://www.tiktok.com/api/story/item_list/', user_name,
+                    note=f'Downloading stories (cursor {cursor})',
+                    query={
+                        'authorId': user_id,
+                        'cursor': str(cursor),
+                        'loadBackward': 'false',
+                        'aid': '1988',
+                        'count': '4',
+                    }, fatal=False)
+
+                if not response or response.get('statusCode') != 0:
+                    break
+
+                total_count = int_or_none(response.get('TotalCount'))
+                story_items = response.get('itemList', [])
+                if not story_items:
+                    break
+
+                for item in story_items:
+                    video_id = item.get('id') or item.get('awemeId')
+                    if not video_id and 'story' in item:
+                        story = item['story']
+                        video_id = story.get('id') or story.get('awemeId')
+
+                    if video_id:
+                        title_str = (
+                            item.get('desc')
+                            or item.get('content')
+                            or f'TikTok video {video_id}'
+                        )
+                        if len(title_str) > 72:
+                            title_str = title_str[:72]
+
+                        yield {
+                            'id': str(video_id),
+                            'url': f'https://www.tiktok.com/@{user_name}/video/{video_id}',
+                            'title': title_str,
+                            'uploader': user_name,
+                        }
+
+                # Some responses omit TotalCount; don't discard valid items in that case
+                if cursor == 0 and total_count == 0:
+                    break
+
+                if not response.get('HasMoreAfter'):
+                    break
+                max_cursor = response.get('MaxCursor')
+                if max_cursor is None:
+                    break
+                cursor = int(max_cursor)
+                if cursor == 0:
+                    break
+
+        except Exception as e:
+            self.report_warning(f'Unable to fetch stories: {e}')
+
+    def _entries(self, sec_uid, user_name, fail_early=False, user_id=None):
         display_id = user_name or sec_uid
         seen_ids = set()
+
+        if user_id:
+            for story in self._fetch_stories(user_id, user_name):
+                story_id = story.get('id')
+                if story_id and story_id not in seen_ids:
+                    seen_ids.add(story_id)
+                    yield self.url_result(
+                        story['url'], TikTokIE, id=story_id,
+                        title=story.get('title'), uploader=story.get('uploader'))
 
         cursor = int(time.time() * 1E3)
         for page in itertools.count(1):
@@ -1064,6 +1135,9 @@ class TikTokUserIE(TikTokBaseIE):
 
     def _real_extract(self, url):
         user_name, sec_uid = self._match_id(url), None
+        user_id = None
+        detail = {}
+
         if re.fullmatch(r'MS4wLjABAAAA[\w-]{64}', user_name):
             user_name, sec_uid = None, user_name
             fail_early = True
@@ -1093,7 +1167,21 @@ class TikTokUserIE(TikTokBaseIE):
                 'from a video posted by this user, try using "tiktokuser:channel_id" as the '
                 'input URL (replacing `channel_id` with its actual value)', expected=True)
 
-        return self.playlist_result(self._entries(sec_uid, user_name, fail_early), sec_uid, user_name)
+        user_id = traverse_obj(detail, ('userInfo', 'user', 'id', {str}))
+
+        if not user_id and user_name:
+            try:
+                test_response = self._download_json(
+                    'https://www.tiktok.com/api/creator/item_list/', user_name,
+                    query=self._build_web_query(sec_uid, int(time.time() * 1E3)),
+                    fatal=False)
+                if test_response and test_response.get('itemList'):
+                    first_video = test_response['itemList'][0]
+                    user_id = traverse_obj(first_video, ('author', 'id', {str}))
+            except Exception:
+                pass
+
+        return self.playlist_result(self._entries(sec_uid, user_name, fail_early, user_id), sec_uid, user_name)
 
 
 class TikTokBaseListIE(TikTokBaseIE):  # XXX: Conventionally, base classes should end with BaseIE/InfoExtractor
