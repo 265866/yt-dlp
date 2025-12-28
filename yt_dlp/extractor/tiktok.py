@@ -1170,7 +1170,7 @@ class TikTokUserIE(TikTokBaseIE):
         if not user_id and user_name:
             try:
                 test_response = self._download_json(
-                    'https://www.tiktok.com/api/creator/item_list/', 'test',
+                    'https://www.tiktok.com/api/creator/item_list/', user_name,
                     query=self._build_web_query(sec_uid, int(time.time() * 1E3)),
                     fatal=False)
                 if test_response and test_response.get('itemList'):
